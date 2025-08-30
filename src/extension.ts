@@ -10,26 +10,28 @@ function nextPosition(
   const step = up ? -1 : 1;
   const boundary = up ? 0 : document.lineCount - 1;
   if (position.line === boundary) return position.line;
-  return afterBlock(document, step, boundary, position.line);
-}
-
-function afterBlock(
-  document: vscode.TextDocument,
-  step: number,
-  boundary: number,
-  index: number,
-  startedBlock: boolean = false
-): number {
-  const line = document.lineAt(index);
-  return index === boundary || (startedBlock && line.isEmptyOrWhitespace)
-    ? index
-    : afterBlock(
-        document,
-        step,
-        boundary,
-        index + step,
-        startedBlock || !line.isEmptyOrWhitespace
-      );
+  
+  // First, skip to the end of the current block
+  let index = position.line;
+  while (index !== boundary && !document.lineAt(index).isEmptyOrWhitespace) {
+    index += step;
+  }
+  
+  // Then skip empty lines
+  while (index !== boundary && document.lineAt(index).isEmptyOrWhitespace) {
+    index += step;
+  }
+  
+  // If we're moving up, we need to find the start of the block we just entered
+  if (up && index !== boundary && !document.lineAt(index).isEmptyOrWhitespace) {
+    // We're at the last line of a block, move to its first line
+    while (index > 0 && !document.lineAt(index - 1).isEmptyOrWhitespace) {
+      index--;
+    }
+  }
+  
+  // Return the first line of the next/previous block (or boundary if we reached it)
+  return index;
 }
 
 function anchorPosition(selection: vscode.Selection) {
