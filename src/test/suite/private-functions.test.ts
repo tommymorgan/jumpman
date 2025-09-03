@@ -2,8 +2,14 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { _internal } from "../../extension";
 
+// Type definitions for mocks
+interface MockLine {
+	isEmptyOrWhitespace: boolean;
+	text: string;
+}
+
 // Helper to create mock line data
-function createMockLine(isEmpty: boolean, text: string) {
+function createMockLine(isEmpty: boolean, text: string): MockLine {
 	return {
 		isEmptyOrWhitespace: isEmpty,
 		text: text,
@@ -11,10 +17,19 @@ function createMockLine(isEmpty: boolean, text: string) {
 }
 
 // Helper to create line based on simple empty indices
-function createLineAtSimple(emptyIndices: number[]) {
+function createLineAtSimple(emptyIndices: number[]): (n: number) => MockLine {
 	return (n: number) => {
 		const isEmpty = emptyIndices.includes(n);
 		return createMockLine(isEmpty, isEmpty ? "" : `line ${n}`);
+	};
+}
+
+// Helper to create mock line with specific empty indices
+function createMockLineAt(n: number, emptyIndices: number[]): MockLine {
+	const isEmpty = emptyIndices.includes(n);
+	return {
+		isEmptyOrWhitespace: isEmpty,
+		text: isEmpty ? "" : `line ${n}`,
 	};
 }
 
@@ -38,7 +53,7 @@ suite("Private Functions", () => {
 		});
 
 		test("should return true when editor has no visible ranges", () => {
-			const mockEditor = { visibleRanges: [] } as any;
+			const mockEditor = { visibleRanges: [] } as unknown as vscode.TextEditor;
 			const result = isLineVisible(5, mockEditor);
 			assert.strictEqual(result, true, "Should assume visible when no ranges");
 		});
@@ -49,7 +64,7 @@ suite("Private Functions", () => {
 					new vscode.Range(0, 0, 10, 0),
 					new vscode.Range(20, 0, 30, 0),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			assert.strictEqual(
 				isLineVisible(5, mockEditor),
@@ -69,7 +84,7 @@ suite("Private Functions", () => {
 					new vscode.Range(0, 0, 10, 0),
 					new vscode.Range(20, 0, 30, 0),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			assert.strictEqual(
 				isLineVisible(15, mockEditor),
@@ -86,7 +101,7 @@ suite("Private Functions", () => {
 		test("should handle edge cases at range boundaries", () => {
 			const mockEditor = {
 				visibleRanges: [new vscode.Range(5, 0, 10, 0)],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			assert.strictEqual(
 				isLineVisible(4, mockEditor),
@@ -110,7 +125,7 @@ suite("Private Functions", () => {
 					new vscode.Range(0, 0, 5, 0),
 					new vscode.Range(10, 0, 15, 0),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting at line 6 (invisible), should skip to line 10 (first visible)
 			const result = skipCollapsedRegion(6, 1, 20, mockEditor);
@@ -123,7 +138,7 @@ suite("Private Functions", () => {
 					new vscode.Range(0, 0, 5, 0),
 					new vscode.Range(10, 0, 15, 0),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting at line 9 (invisible), should skip to line 5 (last visible before gap)
 			const result = skipCollapsedRegion(9, -1, 0, mockEditor);
@@ -133,7 +148,7 @@ suite("Private Functions", () => {
 		test("should stop at boundary when moving forward", () => {
 			const mockEditor = {
 				visibleRanges: [new vscode.Range(0, 0, 5, 0)],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting at line 6, with boundary at 8
 			const result = skipCollapsedRegion(6, 1, 8, mockEditor);
@@ -143,7 +158,7 @@ suite("Private Functions", () => {
 		test("should stop at boundary when moving backward", () => {
 			const mockEditor = {
 				visibleRanges: [new vscode.Range(10, 0, 15, 0)],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting at line 9, with boundary at 7
 			const result = skipCollapsedRegion(9, -1, 7, mockEditor);
@@ -153,7 +168,7 @@ suite("Private Functions", () => {
 		test("should return immediately if starting on visible line", () => {
 			const mockEditor = {
 				visibleRanges: [new vscode.Range(0, 0, 10, 0)],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			const result = skipCollapsedRegion(5, 1, 20, mockEditor);
 			assert.strictEqual(
@@ -258,7 +273,7 @@ suite("Private Functions", () => {
 					new vscode.Range(0, 0, 5, 0),
 					new vscode.Range(8, 0, 10, 0),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting at line 3, should stop at line 5 (before invisible line 6)
 			const result = skipToEndOfCurrentBlock(mockDoc, 3, 9, mockEditor);
@@ -308,7 +323,7 @@ suite("Private Functions", () => {
 		test("should stop at boundary", () => {
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
+				lineAt: (_n: number) => ({
 					isEmptyOrWhitespace: true,
 					text: "",
 				}),
@@ -412,7 +427,7 @@ suite("Private Functions", () => {
 					new vscode.Range(0, 0, 3, 0),
 					new vscode.Range(5, 0, 10, 0),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting at line 6, should stop at line 5 (line 4 is invisible)
 			const result = findBlockStart(mockDoc, 6, 0, mockEditor);
@@ -438,8 +453,8 @@ suite("Private Functions", () => {
 		test("should return current position when at boundary moving up", () => {
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({ isEmptyOrWhitespace: false }),
-			} as any;
+				lineAt: (_n: number) => ({ isEmptyOrWhitespace: false }),
+			} as unknown as vscode.TextDocument;
 
 			const position = new vscode.Position(0, 0);
 			const result = nextPosition(mockDoc, position, true, undefined);
@@ -449,8 +464,8 @@ suite("Private Functions", () => {
 		test("should return current position when at boundary moving down", () => {
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({ isEmptyOrWhitespace: false }),
-			} as any;
+				lineAt: (_n: number) => ({ isEmptyOrWhitespace: false }),
+			} as unknown as vscode.TextDocument;
 
 			const position = new vscode.Position(9, 0);
 			const result = nextPosition(mockDoc, position, false, undefined);
@@ -458,13 +473,11 @@ suite("Private Functions", () => {
 		});
 
 		test("should call findPreviousVisibleBlock when moving up", () => {
+			const emptyIndices = [3, 7];
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 3 || n === 7,
-					text: n === 3 || n === 7 ? "" : `line ${n}`,
-				}),
-			} as any;
+				lineAt: (n: number) => createMockLineAt(n, emptyIndices),
+			} as unknown as vscode.TextDocument;
 
 			const position = new vscode.Position(5, 0);
 			const result = nextPosition(mockDoc, position, true, undefined);
@@ -473,13 +486,11 @@ suite("Private Functions", () => {
 		});
 
 		test("should call findNextVisibleBlock when moving down", () => {
+			const emptyIndices = [3, 7];
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 3 || n === 7,
-					text: n === 3 || n === 7 ? "" : `line ${n}`,
-				}),
-			} as any;
+				lineAt: (n: number) => createMockLineAt(n, emptyIndices),
+			} as unknown as vscode.TextDocument;
 
 			const position = new vscode.Position(5, 0);
 			const result = nextPosition(mockDoc, position, false, undefined);
@@ -487,20 +498,18 @@ suite("Private Functions", () => {
 		});
 
 		test("should handle collapsed regions when provided editor", () => {
+			const emptyIndices = [3, 15];
 			const mockDoc = {
 				lineCount: 20,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 3 || n === 15,
-					text: n === 3 || n === 15 ? "" : `line ${n}`,
-				}),
-			} as any;
+				lineAt: (n: number) => createMockLineAt(n, emptyIndices),
+			} as unknown as vscode.TextDocument;
 
 			const mockEditor = {
 				visibleRanges: [
 					new vscode.Range(0, 0, 5, 0),
 					new vscode.Range(14, 0, 20, 0),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting at line 2, moving down:
 			// - Lines 0-2 form a block
@@ -576,7 +585,8 @@ suite("Private Functions", () => {
 				revealRange: (range: vscode.Range) => {
 					capturedRange = range;
 				},
-			} as any;
+				_selection: undefined as vscode.Selection | undefined,
+			} as unknown as vscode.TextEditor & { _selection?: vscode.Selection };
 
 			// Use setter to capture the selection
 			Object.defineProperty(mockEditor, "selection", {
@@ -592,34 +602,34 @@ suite("Private Functions", () => {
 
 			assert.ok(capturedSelection, "Selection should be set");
 			assert.strictEqual(
-				capturedSelection!.active.line,
+				capturedSelection?.active.line,
 				10,
 				"Active should be at line 10",
 			);
 			assert.strictEqual(
-				capturedSelection!.active.character,
+				capturedSelection?.active.character,
 				0,
 				"Active should be at character 0",
 			);
 			assert.strictEqual(
-				capturedSelection!.anchor.line,
+				capturedSelection?.anchor.line,
 				10,
 				"Anchor should be at line 10",
 			);
 			assert.strictEqual(
-				capturedSelection!.anchor.character,
+				capturedSelection?.anchor.character,
 				0,
 				"Anchor should be at character 0",
 			);
 
 			assert.ok(capturedRange, "Range should be revealed");
 			assert.strictEqual(
-				capturedRange!.start.line,
+				capturedRange?.start.line,
 				10,
 				"Range start should be at line 10",
 			);
 			assert.strictEqual(
-				capturedRange!.end.line,
+				capturedRange?.end.line,
 				10,
 				"Range end should be at line 10",
 			);
@@ -633,8 +643,9 @@ suite("Private Functions", () => {
 					new vscode.Position(5, 0),
 					new vscode.Position(5, 0),
 				),
-				revealRange: (range: vscode.Range) => {},
-			} as any;
+				revealRange: (_range: vscode.Range) => {},
+				_selection: undefined as vscode.Selection | undefined,
+			} as unknown as vscode.TextEditor & { _selection?: vscode.Selection };
 
 			Object.defineProperty(mockEditor, "selection", {
 				get: () => mockEditor._selection || new vscode.Selection(5, 0, 5, 0),
@@ -650,22 +661,22 @@ suite("Private Functions", () => {
 
 			assert.ok(capturedSelection, "Selection should be set");
 			assert.strictEqual(
-				capturedSelection!.active.line,
+				capturedSelection?.active.line,
 				10,
 				"Active should be at line 10",
 			);
 			assert.strictEqual(
-				capturedSelection!.active.character,
+				capturedSelection?.active.character,
 				0,
 				"Active should be at character 0",
 			);
 			assert.strictEqual(
-				capturedSelection!.anchor.line,
+				capturedSelection?.anchor.line,
 				3,
 				"Anchor should be at line 3",
 			);
 			assert.strictEqual(
-				capturedSelection!.anchor.character,
+				capturedSelection?.anchor.character,
 				5,
 				"Anchor should be at character 5",
 			);
@@ -679,8 +690,9 @@ suite("Private Functions", () => {
 					new vscode.Position(5, 10),
 					new vscode.Position(5, 10),
 				),
-				revealRange: (range: vscode.Range) => {},
-			} as any;
+				revealRange: (_range: vscode.Range) => {},
+				_selection: undefined as vscode.Selection | undefined,
+			} as unknown as vscode.TextEditor & { _selection?: vscode.Selection };
 
 			Object.defineProperty(mockEditor, "selection", {
 				get: () => mockEditor._selection || new vscode.Selection(5, 10, 5, 10),
@@ -696,7 +708,7 @@ suite("Private Functions", () => {
 			assert.ok(capturedSelection, "Selection should be set");
 			// The active.with(next, 0) call should set character to 0
 			assert.strictEqual(
-				capturedSelection!.active.character,
+				capturedSelection?.active.character,
 				0,
 				"Should reset to character 0",
 			);
@@ -710,8 +722,9 @@ suite("Private Functions", () => {
 					new vscode.Position(5, 0),
 					new vscode.Position(5, 0),
 				),
-				revealRange: (range: vscode.Range) => {},
-			} as any;
+				revealRange: (_range: vscode.Range) => {},
+				_selection: undefined as vscode.Selection | undefined,
+			} as unknown as vscode.TextEditor & { _selection?: vscode.Selection };
 
 			Object.defineProperty(mockEditor, "selection", {
 				get: () => mockEditor._selection || new vscode.Selection(5, 0, 5, 0),
@@ -727,22 +740,22 @@ suite("Private Functions", () => {
 
 			assert.ok(capturedSelection, "Selection should be set");
 			assert.strictEqual(
-				capturedSelection!.start.line,
+				capturedSelection?.start.line,
 				2,
 				"Selection should start at line 2",
 			);
 			assert.strictEqual(
-				capturedSelection!.end.line,
+				capturedSelection?.end.line,
 				8,
 				"Selection should end at line 8",
 			);
 			assert.strictEqual(
-				capturedSelection!.active.line,
+				capturedSelection?.active.line,
 				8,
 				"Active should be at line 8",
 			);
 			assert.strictEqual(
-				capturedSelection!.anchor.line,
+				capturedSelection?.anchor.line,
 				2,
 				"Anchor should be at line 2",
 			);

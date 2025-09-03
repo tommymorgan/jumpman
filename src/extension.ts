@@ -37,7 +37,11 @@ function isStandaloneClosingBrace(lineText: string): boolean {
 		trimmed === ")" ||
 		trimmed === "};" ||
 		trimmed === "];" ||
-		trimmed === ");"
+		trimmed === ");" ||
+		trimmed === "});" ||
+		trimmed === "})" ||
+		trimmed === "]);" ||
+		trimmed === "])"
 	);
 }
 

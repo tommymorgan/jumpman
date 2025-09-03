@@ -1,11 +1,17 @@
-import * as assert from "assert";
+import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { _internal } from "../../extension";
 
 const { findNextVisibleBlock, findPreviousVisibleBlock } = _internal;
 
+// Type definitions for mocks
+interface MockLine {
+	isEmptyOrWhitespace: boolean;
+	text: string;
+}
+
 // Helper to create mock line data
-function createMockLine(isEmpty: boolean, text: string) {
+function createMockLine(isEmpty: boolean, text: string): MockLine {
 	return {
 		isEmptyOrWhitespace: isEmpty,
 		text: text,
@@ -13,7 +19,7 @@ function createMockLine(isEmpty: boolean, text: string) {
 }
 
 // Helper to create line based on simple empty indices
-function createLineAtSimple(emptyIndices: number[]) {
+function createLineAtSimple(emptyIndices: number[]): (n: number) => MockLine {
 	return (n: number) => {
 		const isEmpty = emptyIndices.includes(n);
 		return createMockLine(isEmpty, isEmpty ? "" : `line ${n}`);
@@ -24,7 +30,7 @@ function createLineAtSimple(emptyIndices: number[]) {
 function createLineAtWithSpecial(
 	emptyIndices: number[],
 	specialCases: Map<number, string>,
-) {
+): (n: number) => MockLine {
 	return (n: number) => {
 		const isEmpty = emptyIndices.includes(n);
 		const specialText = specialCases.get(n);
@@ -42,7 +48,7 @@ suite("Internal Functions", () => {
 			const mockDoc = {
 				lineCount: 10,
 				lineAt: createLineAtSimple([2, 6]),
-			} as vscode.TextDocument;
+			} as unknown as vscode.TextDocument;
 
 			// No editor (no collapsed regions)
 			const result = findNextVisibleBlock(mockDoc, 0, 9, undefined);
@@ -54,7 +60,7 @@ suite("Internal Functions", () => {
 			const mockDoc = {
 				lineCount: 10,
 				lineAt: createLineAtWithSpecial([2, 8], specialCases),
-			} as vscode.TextDocument;
+			} as unknown as vscode.TextDocument;
 
 			// Mock editor with collapsed region (lines 3-6 not visible)
 			const mockEditor = {
@@ -62,7 +68,7 @@ suite("Internal Functions", () => {
 					new vscode.Range(0, 0, 2, Number.MAX_SAFE_INTEGER),
 					new vscode.Range(7, 0, 9, Number.MAX_SAFE_INTEGER),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			const result = findNextVisibleBlock(mockDoc, 0, 9, mockEditor);
 			// Should skip past collapsed region and closing brace to line 9
@@ -84,13 +90,57 @@ suite("Internal Functions", () => {
 			const mockDoc = {
 				lineCount: 5,
 				lineAt: (n: number) => createMockLine(lines[n] === "", lines[n]),
-			} as vscode.TextDocument;
+			} as unknown as vscode.TextDocument;
 
 			const result = findNextVisibleBlock(mockDoc, 0, 4, undefined);
 			assert.strictEqual(
 				result,
 				4,
 				"Should skip closing brace at line 2 and find line 4",
+			);
+		});
+
+		test("should skip past folded test with closing brace to next test", () => {
+			// Scenario: First test is folded, cursor at line 1
+			// Should skip to line 13 (start of next test), not line 11 (closing brace)
+			const lines = [
+				`describe("Test Suite", () => {`, // 0
+				`  test("first test", () => {`, // 1  <- cursor here, test is folded
+				`    const a = 1;`, // 2 (hidden)
+				`    const b = 2;`, // 3 (hidden)
+				`    expect(a + b).toBe(3);`, // 4 (hidden)
+				`  });`, // 5 (hidden)
+				``, // 6 (hidden)
+				`  beforeEach(() => {`, // 7 (hidden)
+				`    // setup`, // 8 (hidden)
+				`  });`, // 9 (hidden)
+				``, // 10 (hidden)
+				`});`, // 11 <- closing brace visible
+				``, // 12
+				`test("second test", () => {`, // 13 <- should land here
+				`  console.log("test");`, // 14
+				`});`, // 15
+			];
+
+			const mockDoc = {
+				lineCount: 16,
+				lineAt: (n: number) => createMockLine(lines[n] === "", lines[n]),
+			} as unknown as vscode.TextDocument;
+
+			// Mock editor with first test folded (lines 2-10 hidden)
+			const mockEditor = {
+				visibleRanges: [
+					new vscode.Range(0, 0, 1, Number.MAX_SAFE_INTEGER), // Lines 0-1 visible
+					new vscode.Range(11, 0, 15, Number.MAX_SAFE_INTEGER), // Lines 11-15 visible
+				],
+			} as unknown as vscode.TextEditor;
+
+			// Starting at line 1, should skip to line 13 (start of second test)
+			const result = findNextVisibleBlock(mockDoc, 1, 15, mockEditor);
+			assert.strictEqual(
+				result,
+				13,
+				"Should skip to start of next test at line 13",
 			);
 		});
 
@@ -126,7 +176,7 @@ suite("Internal Functions", () => {
 			const mockDoc = {
 				lineCount: 25,
 				lineAt: (n: number) => createMockLine(lines[n] === "", lines[n]),
-			} as vscode.TextDocument;
+			} as unknown as vscode.TextDocument;
 
 			// Mock editor with lines 4-20 collapsed (function body hidden)
 			const mockEditor = {
@@ -134,7 +184,7 @@ suite("Internal Functions", () => {
 					new vscode.Range(0, 0, 3, Number.MAX_SAFE_INTEGER), // Lines 0-3 visible
 					new vscode.Range(21, 0, 24, Number.MAX_SAFE_INTEGER), // Lines 21-24 visible (closing brace, empty, main(), empty)
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting from line 3 (function declaration), should jump to line 23 (main();)
 			const result = findNextVisibleBlock(mockDoc, 3, 24, mockEditor);
@@ -151,7 +201,7 @@ suite("Internal Functions", () => {
 			const mockDoc = {
 				lineCount: 10,
 				lineAt: createLineAtSimple([5, 2]),
-			} as vscode.TextDocument;
+			} as unknown as vscode.TextDocument;
 
 			const result = findPreviousVisibleBlock(mockDoc, 5, 0, undefined);
 			assert.strictEqual(
@@ -165,7 +215,7 @@ suite("Internal Functions", () => {
 			const mockDoc = {
 				lineCount: 10,
 				lineAt: createLineAtSimple([2, 6]),
-			} as vscode.TextDocument;
+			} as unknown as vscode.TextDocument;
 
 			const result = findPreviousVisibleBlock(mockDoc, 4, 0, undefined);
 			assert.strictEqual(result, 0, "Should find previous block at line 0");
@@ -202,7 +252,7 @@ suite("Internal Functions", () => {
 			const mockDoc = {
 				lineCount: 25,
 				lineAt: (n: number) => createMockLine(lines[n] === "", lines[n]),
-			} as vscode.TextDocument;
+			} as unknown as vscode.TextDocument;
 
 			// Mock editor with lines 4-20 collapsed
 			const mockEditor = {
@@ -210,7 +260,7 @@ suite("Internal Functions", () => {
 					new vscode.Range(0, 0, 3, Number.MAX_SAFE_INTEGER),
 					new vscode.Range(21, 0, 24, Number.MAX_SAFE_INTEGER),
 				],
-			} as any;
+			} as unknown as vscode.TextEditor;
 
 			// Starting from line 22 (empty line after }), should jump to line 3 (function declaration)
 			const result = findPreviousVisibleBlock(mockDoc, 22, 0, mockEditor);

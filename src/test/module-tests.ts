@@ -1,10 +1,14 @@
-// Run the module tests for internal functions
-import * as assert from "assert";
-
 // Set the flag to run module tests
-(global as any).runModuleTests = true;
-(global as any).describe = describe;
-(global as any).it = it;
+interface ExtendedGlobal {
+	runModuleTests?: boolean;
+	describe?: typeof describe;
+	it?: typeof it;
+}
+
+const extendedGlobal = global as typeof global & ExtendedGlobal;
+extendedGlobal.runModuleTests = true;
+extendedGlobal.describe = describe;
+extendedGlobal.it = it;
 
 // Import the module which will run its internal tests
 import "../extension";
