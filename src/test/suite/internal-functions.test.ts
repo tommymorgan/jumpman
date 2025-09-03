@@ -40,7 +40,11 @@ suite("Internal Functions", () => {
 
 			const result = findNextVisibleBlock(mockDoc, 0, 9, mockEditor);
 			// Should skip past collapsed region and closing brace to line 9
-			assert.strictEqual(result, 9, "Should skip collapsed region and closing brace");
+			assert.strictEqual(
+				result,
+				9,
+				"Should skip collapsed region and closing brace",
+			);
 		});
 
 		test("should skip standalone closing braces", () => {
@@ -52,17 +56,21 @@ suite("Internal Functions", () => {
 						n === 0
 							? "function foo() {"
 							: n === 1
-							? ""
-							: n === 2
-							? "}"
-							: n === 3
-							? ""
-							: "next();",
+								? ""
+								: n === 2
+									? "}"
+									: n === 3
+										? ""
+										: "next();",
 				}),
 			} as vscode.TextDocument;
 
 			const result = findNextVisibleBlock(mockDoc, 0, 4, undefined);
-			assert.strictEqual(result, 4, "Should skip closing brace at line 2 and find line 4");
+			assert.strictEqual(
+				result,
+				4,
+				"Should skip closing brace at line 2 and find line 4",
+			);
 		});
 
 		test("should handle the exact runTest.ts scenario", () => {
@@ -133,7 +141,11 @@ suite("Internal Functions", () => {
 			} as vscode.TextDocument;
 
 			const result = findPreviousVisibleBlock(mockDoc, 5, 0, undefined);
-			assert.strictEqual(result, 3, "Should find start of previous block at line 3");
+			assert.strictEqual(
+				result,
+				3,
+				"Should find start of previous block at line 3",
+			);
 		});
 
 		test("should find previous block when starting in middle of current block", () => {

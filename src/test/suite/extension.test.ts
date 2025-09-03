@@ -578,7 +578,7 @@ after function`,
 			// This test reproduces the exact bug found in src/test/runTest.ts
 			// When a function's body is collapsed but the closing brace remains visible,
 			// moveDown should jump to the next block, not stop at the closing brace
-			
+
 			await createDocument(
 				`import * as path from "node:path";
 import { runTests } from "@vscode/test-electron";
@@ -609,17 +609,17 @@ main();`,
 			// Mock visibleRanges to simulate function body collapsed (lines 5-20 hidden)
 			// but closing brace (line 21) remains visible - this is how VSCode actually collapses functions
 			const mockVisibleRanges = [
-				new vscode.Range(0, 0, 4, Number.MAX_SAFE_INTEGER),   // Lines 0-4 visible (imports and function declaration)
-				new vscode.Range(21, 0, 23, Number.MAX_SAFE_INTEGER)  // Lines 21-23 visible (closing brace, empty line, main() call)
+				new vscode.Range(0, 0, 4, Number.MAX_SAFE_INTEGER), // Lines 0-4 visible (imports and function declaration)
+				new vscode.Range(21, 0, 23, Number.MAX_SAFE_INTEGER), // Lines 21-23 visible (closing brace, empty line, main() call)
 			];
-			
+
 			// Set up mock using proxy approach
 			const originalActiveTextEditor = vscode.window.activeTextEditor;
-			Object.defineProperty(vscode.window, 'activeTextEditor', {
+			Object.defineProperty(vscode.window, "activeTextEditor", {
 				get: () => {
 					return new Proxy(editor, {
 						get(target, prop) {
-							if (prop === 'visibleRanges') {
+							if (prop === "visibleRanges") {
 								return mockVisibleRanges;
 							}
 							// @ts-expect-error - TypeScript can't verify the type of dynamically accessed properties on Proxy target
@@ -629,28 +629,28 @@ main();`,
 							// @ts-expect-error - TypeScript can't verify the type when setting dynamic properties on Proxy target
 							target[prop] = value;
 							return true;
-						}
+						},
 					}) as vscode.TextEditor;
 				},
-				configurable: true
+				configurable: true,
 			});
 
 			try {
 				// Start at line 4 (function declaration)
 				setCursorPosition(4);
-				
+
 				// Moving down should jump to line 23 (main();), NOT line 21 (})
 				await vscode.commands.executeCommand("jumpman.moveDown");
 				assert.strictEqual(
 					getCursorLine(),
 					23,
-					"Should jump to next block (main();) at line 23, not closing brace at line 21"
+					"Should jump to next block (main();) at line 23, not closing brace at line 21",
 				);
 			} finally {
 				// Restore original
-				Object.defineProperty(vscode.window, 'activeTextEditor', {
+				Object.defineProperty(vscode.window, "activeTextEditor", {
 					get: () => originalActiveTextEditor,
-					configurable: true
+					configurable: true,
 				});
 			}
 		});

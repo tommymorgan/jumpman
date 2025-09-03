@@ -28,6 +28,99 @@ function skipCollapsedRegion(
 	return index;
 }
 
+// Check if a line contains only a closing brace
+function isStandaloneClosingBrace(lineText: string): boolean {
+	const trimmed = lineText.trim();
+	return (
+		trimmed === "}" ||
+		trimmed === "]" ||
+		trimmed === ")" ||
+		trimmed === "};" ||
+		trimmed === "];" ||
+		trimmed === ");"
+	);
+}
+
+// Check if we should continue to next line in block
+function shouldContinueInBlock(
+	document: vscode.TextDocument,
+	nextLine: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): boolean {
+	if (nextLine > boundary) return false;
+	if (!isLineVisible(nextLine, editor)) return false;
+	if (document.lineAt(nextLine).isEmptyOrWhitespace) return false;
+	return true;
+}
+
+// Skip to the end of the current block
+function skipToEndOfCurrentBlock(
+	document: vscode.TextDocument,
+	startIndex: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): number {
+	let index = startIndex;
+	// If we're on an empty line, don't skip anything
+	if (document.lineAt(index).isEmptyOrWhitespace) {
+		return index;
+	}
+
+	// Skip to the end of the current block
+	while (
+		index < boundary &&
+		shouldContinueInBlock(document, index + 1, boundary, editor)
+	) {
+		index++;
+	}
+	return index < boundary ? index : boundary;
+}
+
+// Check if line is valid (non-empty and not a closing brace)
+function isValidBlockLine(
+	document: vscode.TextDocument,
+	index: number,
+	editor?: vscode.TextEditor,
+): boolean {
+	if (!isLineVisible(index, editor)) {
+		return false;
+	}
+	if (document.lineAt(index).isEmptyOrWhitespace) {
+		return false;
+	}
+	return !isStandaloneClosingBrace(document.lineAt(index).text);
+}
+
+// Move to next line handling collapsed regions
+function moveToNextLine(
+	index: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): number {
+	index++;
+	if (!isLineVisible(index, editor)) {
+		return skipCollapsedRegion(index, 1, boundary, editor);
+	}
+	return index;
+}
+
+// Find the next non-empty, non-brace line
+function findNextNonEmptyLine(
+	document: vscode.TextDocument,
+	startIndex: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): number {
+	let index = startIndex;
+	while (index < boundary) {
+		index = moveToNextLine(index, boundary, editor);
+		if (index > boundary) return boundary;
+		if (isValidBlockLine(document, index, editor)) return index;
+	}
+	return boundary;
+}
+
 // Find the next visible block when moving down
 function findNextVisibleBlock(
 	document: vscode.TextDocument,
@@ -35,42 +128,99 @@ function findNextVisibleBlock(
 	boundary: number,
 	editor?: vscode.TextEditor,
 ): number {
-	let index = startIndex;
-	
 	// First, skip to the end of the current block if we're in one
-	if (!document.lineAt(index).isEmptyOrWhitespace) {
-		while (index < boundary) {
-			const nextLine = index + 1;
-			if (nextLine > boundary) break;
-			if (!isLineVisible(nextLine, editor)) break;
-			if (document.lineAt(nextLine).isEmptyOrWhitespace) break;
-			index = nextLine;
-		}
+	const blockEnd = skipToEndOfCurrentBlock(
+		document,
+		startIndex,
+		boundary,
+		editor,
+	);
+	// Now find the next non-empty, non-brace line
+	return findNextNonEmptyLine(document, blockEnd, boundary, editor);
+}
+
+// Skip empty lines when moving backward
+function skipEmptyLinesBackward(
+	document: vscode.TextDocument,
+	index: number,
+	boundary: number,
+): number {
+	while (index >= boundary && document.lineAt(index).isEmptyOrWhitespace) {
+		index--;
 	}
-	
-	// Now find the next block
-	while (index < boundary) {
-		index++;
-		
-		// Skip collapsed regions
-		if (!isLineVisible(index, editor)) {
-			index = skipCollapsedRegion(index, 1, boundary, editor);
-			if (index > boundary) return boundary;
-		}
-		
-		// We found a visible line - check if it's non-empty and not a closing brace
-		if (isLineVisible(index, editor) && !document.lineAt(index).isEmptyOrWhitespace) {
-			const lineText = document.lineAt(index).text.trim();
-			// Skip standalone closing braces and continue looking
-			if (lineText === '}' || lineText === ']' || lineText === ')' || 
-				lineText === '};' || lineText === '];' || lineText === ');') {
-				continue;
-			}
-			// Found a valid block start
-			return index;
-		}
+	return index;
+}
+
+// Check if we can continue to previous line in block
+function canMoveToPreviousInBlock(
+	document: vscode.TextDocument,
+	prevLine: number,
+	editor?: vscode.TextEditor,
+): boolean {
+	if (!isLineVisible(prevLine, editor)) return false;
+	if (document.lineAt(prevLine).isEmptyOrWhitespace) return false;
+	return !isStandaloneClosingBrace(document.lineAt(prevLine).text);
+}
+
+// Find the start of the block containing the given index
+function findBlockStart(
+	document: vscode.TextDocument,
+	index: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): number {
+	while (
+		index > boundary &&
+		canMoveToPreviousInBlock(document, index - 1, editor)
+	) {
+		index--;
 	}
-	
+	return index;
+}
+
+// Skip to the start of current block when moving up
+function skipToStartOfCurrentBlock(
+	document: vscode.TextDocument,
+	startIndex: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): number {
+	if (document.lineAt(startIndex).isEmptyOrWhitespace) {
+		return startIndex;
+	}
+	return findBlockStart(document, startIndex, boundary, editor);
+}
+
+// Move to previous line handling collapsed regions and empty lines
+function moveToPreviousLine(
+	document: vscode.TextDocument,
+	index: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): number {
+	index--;
+	if (!isLineVisible(index, editor)) {
+		index = skipCollapsedRegion(index, -1, boundary, editor);
+	}
+	if (index >= boundary) {
+		index = skipEmptyLinesBackward(document, index, boundary);
+	}
+	return index;
+}
+
+// Find the previous non-empty, non-brace line
+function findPreviousNonEmptyLine(
+	document: vscode.TextDocument,
+	startIndex: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): number {
+	let index = startIndex;
+	while (index > boundary) {
+		index = moveToPreviousLine(document, index, boundary, editor);
+		if (index < boundary) return boundary;
+		if (isValidBlockLine(document, index, editor)) return index;
+	}
 	return boundary;
 }
 
@@ -81,65 +231,26 @@ function findPreviousVisibleBlock(
 	boundary: number,
 	editor?: vscode.TextEditor,
 ): number {
-	let index = startIndex;
-	
-	// First, skip to the start of the current block if we're in one
-	if (!document.lineAt(index).isEmptyOrWhitespace) {
-		while (index > boundary) {
-			const prevLine = index - 1;
-			if (!isLineVisible(prevLine, editor)) break;
-			if (document.lineAt(prevLine).isEmptyOrWhitespace) break;
-			index = prevLine;
-		}
+	// First, skip to the start of current block
+	const blockStart = skipToStartOfCurrentBlock(
+		document,
+		startIndex,
+		boundary,
+		editor,
+	);
+	// Find the previous non-empty line
+	const prevLine = findPreviousNonEmptyLine(
+		document,
+		blockStart,
+		boundary,
+		editor,
+	);
+	// If we found a valid line, find the start of its block
+	if (prevLine !== boundary) {
+		return findBlockStart(document, prevLine, boundary, editor);
 	}
-	
-	// Now move backwards to find the previous block
-	while (index > boundary) {
-		index--;
-		
-		// Skip collapsed regions
-		if (!isLineVisible(index, editor)) {
-			index = skipCollapsedRegion(index, -1, boundary, editor);
-			if (index < boundary) return boundary;
-		}
-		
-		// Skip empty lines
-		while (index >= boundary && document.lineAt(index).isEmptyOrWhitespace) {
-			index--;
-			if (index < boundary) return boundary;
-		}
-		
-		if (index < boundary) return boundary;
-		
-		// Check if this line is visible and not just a closing brace
-		if (isLineVisible(index, editor)) {
-			const lineText = document.lineAt(index).text.trim();
-			// Skip standalone closing braces when moving up
-			if (lineText === '}' || lineText === ']' || lineText === ')' || 
-				lineText === '};' || lineText === '];' || lineText === ');') {
-				continue;
-			}
-			
-			// Found a valid block, now find its start
-			while (index > boundary) {
-				const prevLine = index - 1;
-				if (!isLineVisible(prevLine, editor)) break;
-				if (document.lineAt(prevLine).isEmptyOrWhitespace) break;
-				const prevText = document.lineAt(prevLine).text.trim();
-				// Don't go past another closing brace
-				if (prevText === '}' || prevText === ']' || prevText === ')' || 
-					prevText === '};' || prevText === '];' || prevText === ');') {
-					break;
-				}
-				index = prevLine;
-			}
-			return index;
-		}
-	}
-	
 	return boundary;
 }
-
 
 function nextPosition(
 	document: vscode.TextDocument,
@@ -179,8 +290,25 @@ function markSelection(
 
 // Export for testing
 export const _internal = {
+	isLineVisible,
+	skipCollapsedRegion,
+	isStandaloneClosingBrace,
+	shouldContinueInBlock,
+	isValidBlockLine,
+	canMoveToPreviousInBlock,
+	moveToNextLine,
+	moveToPreviousLine,
+	skipToEndOfCurrentBlock,
+	skipToStartOfCurrentBlock,
+	skipEmptyLinesBackward,
+	findBlockStart,
+	findNextNonEmptyLine,
+	findPreviousNonEmptyLine,
 	findNextVisibleBlock,
 	findPreviousVisibleBlock,
+	nextPosition,
+	anchorPosition,
+	markSelection,
 };
 
 export function activate(context: vscode.ExtensionContext) {
