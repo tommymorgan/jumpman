@@ -308,22 +308,22 @@ after function`,
 			// - Line 2 remains visible showing "function complexFunction() { ... }"
 			// - Lines 3-13 become hidden (inside the collapsed region)
 			// - Lines 14-15 remain visible
-			
+
 			// Create a mock editor object with our simulated visibleRanges
 			const mockVisibleRanges = [
-				new vscode.Range(0, 0, 2, Number.MAX_SAFE_INTEGER),  // Lines 0-2 visible (before and including function start)
-				new vscode.Range(14, 0, 15, Number.MAX_SAFE_INTEGER)  // Lines 14-15 visible (after function)
+				new vscode.Range(0, 0, 2, Number.MAX_SAFE_INTEGER), // Lines 0-2 visible (before and including function start)
+				new vscode.Range(14, 0, 15, Number.MAX_SAFE_INTEGER), // Lines 14-15 visible (after function)
 			];
-			
+
 			// Temporarily replace vscode.window.activeTextEditor to return our mock
 			// The mock needs to be created dynamically to reflect current selection state
 			const originalActiveTextEditor = vscode.window.activeTextEditor;
-			Object.defineProperty(vscode.window, 'activeTextEditor', {
+			Object.defineProperty(vscode.window, "activeTextEditor", {
 				get: () => {
 					// Create a proxy that intercepts visibleRanges but passes everything else through
 					return new Proxy(editor, {
 						get(target, prop) {
-							if (prop === 'visibleRanges') {
+							if (prop === "visibleRanges") {
 								return mockVisibleRanges;
 							}
 							// @ts-expect-error - TypeScript can't verify the type of dynamically accessed properties on Proxy target
@@ -333,10 +333,10 @@ after function`,
 							// @ts-expect-error - TypeScript can't verify the type when setting dynamic properties on Proxy target
 							target[prop] = value;
 							return true;
-						}
+						},
 					}) as vscode.TextEditor;
 				},
-				configurable: true
+				configurable: true,
 			});
 
 			try {
@@ -376,9 +376,9 @@ after function`,
 				);
 			} finally {
 				// Restore original activeTextEditor
-				Object.defineProperty(vscode.window, 'activeTextEditor', {
+				Object.defineProperty(vscode.window, "activeTextEditor", {
 					get: () => originalActiveTextEditor,
-					configurable: true
+					configurable: true,
 				});
 			}
 		});
@@ -387,7 +387,7 @@ after function`,
 			// This test reproduces the bug found when testing in src/test/runTest.ts
 			// When a function is collapsed and we're below it, moveUp should jump to
 			// the function declaration line, not the closing brace
-			
+
 			// Create a document similar to runTest.ts structure
 			await createDocument(
 				`import * as path from "node:path";
@@ -418,21 +418,21 @@ main();`,
 
 			// Start at line 23 (main(); call) - do this before setting up the mock
 			setCursorPosition(23);
-			
+
 			// Mock visibleRanges to simulate the function body is collapsed (lines 4-21 hidden)
 			// Only the function declaration line (3) and closing brace (21) are visible
 			const mockVisibleRanges = [
-				new vscode.Range(0, 0, 3, Number.MAX_SAFE_INTEGER),   // Lines 0-3 visible (imports and function declaration)
-				new vscode.Range(21, 0, 23, Number.MAX_SAFE_INTEGER)  // Lines 21-23 visible (closing brace, empty line, main() call)
+				new vscode.Range(0, 0, 3, Number.MAX_SAFE_INTEGER), // Lines 0-3 visible (imports and function declaration)
+				new vscode.Range(21, 0, 23, Number.MAX_SAFE_INTEGER), // Lines 21-23 visible (closing brace, empty line, main() call)
 			];
-			
+
 			// Set up mock using proxy approach
 			const originalActiveTextEditor = vscode.window.activeTextEditor;
-			Object.defineProperty(vscode.window, 'activeTextEditor', {
+			Object.defineProperty(vscode.window, "activeTextEditor", {
 				get: () => {
 					return new Proxy(editor, {
 						get(target, prop) {
-							if (prop === 'visibleRanges') {
+							if (prop === "visibleRanges") {
 								return mockVisibleRanges;
 							}
 							// @ts-expect-error - TypeScript can't verify the type of dynamically accessed properties on Proxy target
@@ -442,58 +442,34 @@ main();`,
 							// @ts-expect-error - TypeScript can't verify the type when setting dynamic properties on Proxy target
 							target[prop] = value;
 							return true;
-						}
+						},
 					}) as vscode.TextEditor;
 				},
-				configurable: true
+				configurable: true,
 			});
 
 			try {
-				
-				// Debug: Check if our mock is working
-				const mockedEditor = vscode.window.activeTextEditor;
-				console.log("Mocked editor visibleRanges:", mockedEditor?.visibleRanges?.map(r => `${r.start.line}-${r.end.line}`));
-				console.log("Editor document matches:", mockedEditor?.document === editor.document);
-				
-				// Test isLineVisible directly
-				const testVisibility = (line: number) => {
-					const ranges = mockedEditor?.visibleRanges || [];
-					return ranges.some(r => line >= r.start.line && line <= r.end.line);
-				};
-				console.log("Line 20 visible?", testVisibility(20)); // Should be false
-				console.log("Line 21 visible?", testVisibility(21)); // Should be true
-				console.log("Line 3 visible?", testVisibility(3));   // Should be true
-				console.log("Line 3 content:", editor.document.lineAt(3).text);
-				console.log("Line 3 is empty?", editor.document.lineAt(3).isEmptyOrWhitespace);
-				console.log("Has editor?", !!mockedEditor);
-				console.log("Has visibleRanges?", !!mockedEditor?.visibleRanges);
-				
-				// BUG: Currently moveUp jumps to line 21 (closing brace) instead of line 3
-				// This happens because the algorithm finds line 21 as visible, then tries to 
-				// find the start of that block but can't go further back due to collapsed lines
+				// Execute moveUp command - should jump across the collapsed region
 				await vscode.commands.executeCommand("jumpman.moveUp");
-				
-				const resultLine = getCursorLine();
-				console.log(`Result: cursor at line ${resultLine}, expected line 3`);
-				
+
 				assert.strictEqual(
-					resultLine,
-					3,  // Expected: should jump to line 3 (function declaration)
-					"Should jump to function declaration at line 3, not closing brace at line 21"
+					getCursorLine(),
+					3, // Expected: should jump to line 3 (function declaration)
+					"Should jump to function declaration at line 3, not closing brace at line 21",
 				);
-				
+
 				// Moving up again should jump to line 0 (first import)
 				await vscode.commands.executeCommand("jumpman.moveUp");
 				assert.strictEqual(
 					getCursorLine(),
 					0,
-					"Should jump to first import at line 0"
+					"Should jump to first import at line 0",
 				);
 			} finally {
 				// Restore original activeTextEditor
-				Object.defineProperty(vscode.window, 'activeTextEditor', {
+				Object.defineProperty(vscode.window, "activeTextEditor", {
 					get: () => originalActiveTextEditor,
-					configurable: true
+					configurable: true,
 				});
 			}
 		});
@@ -501,7 +477,7 @@ main();`,
 		test("should select across collapsed regions when using selectUp", async () => {
 			// This test verifies that selectUp properly extends selection across collapsed regions
 			// Similar to the moveUp test, but maintains selection anchor point
-			
+
 			// Create a document with a collapsible function
 			await createDocument(
 				`before function
@@ -524,17 +500,17 @@ after function`,
 
 			// Mock visibleRanges to simulate a collapsed function (lines 2-13)
 			const mockVisibleRanges = [
-				new vscode.Range(0, 0, 2, Number.MAX_SAFE_INTEGER),  // Lines 0-2 visible
-				new vscode.Range(14, 0, 15, Number.MAX_SAFE_INTEGER)  // Lines 14-15 visible
+				new vscode.Range(0, 0, 2, Number.MAX_SAFE_INTEGER), // Lines 0-2 visible
+				new vscode.Range(14, 0, 15, Number.MAX_SAFE_INTEGER), // Lines 14-15 visible
 			];
-			
+
 			// Set up mock using the same proxy approach
 			const originalActiveTextEditor = vscode.window.activeTextEditor;
-			Object.defineProperty(vscode.window, 'activeTextEditor', {
+			Object.defineProperty(vscode.window, "activeTextEditor", {
 				get: () => {
 					return new Proxy(editor, {
 						get(target, prop) {
-							if (prop === 'visibleRanges') {
+							if (prop === "visibleRanges") {
 								return mockVisibleRanges;
 							}
 							// @ts-expect-error - TypeScript can't verify the type of dynamically accessed properties on Proxy target
@@ -544,56 +520,56 @@ after function`,
 							// @ts-expect-error - TypeScript can't verify the type when setting dynamic properties on Proxy target
 							target[prop] = value;
 							return true;
-						}
+						},
 					}) as vscode.TextEditor;
 				},
-				configurable: true
+				configurable: true,
 			});
 
 			try {
 				// Start at line 15 (after function)
 				setCursorPosition(15);
-				
+
 				// SelectUp should select from line 15 to the start of the collapsed function (line 2)
 				// It should treat the collapsed region as a single unit
 				await vscode.commands.executeCommand("jumpman.selectUp");
-				
+
 				const selection = editor.selection;
 				assert.strictEqual(
 					selection.anchor.line,
 					15,
-					"Selection anchor should remain at line 15"
+					"Selection anchor should remain at line 15",
 				);
 				assert.strictEqual(
 					selection.active.line,
 					2,
-					"Selection should extend to start of collapsed function at line 2"
+					"Selection should extend to start of collapsed function at line 2",
 				);
 				assert.strictEqual(
 					selection.isEmpty,
 					false,
-					"Selection should not be empty"
+					"Selection should not be empty",
 				);
-				
+
 				// SelectUp again should extend selection to line 0 (before function)
 				await vscode.commands.executeCommand("jumpman.selectUp");
-				
+
 				const selection2 = editor.selection;
 				assert.strictEqual(
 					selection2.anchor.line,
 					15,
-					"Selection anchor should still be at line 15"
+					"Selection anchor should still be at line 15",
 				);
 				assert.strictEqual(
 					selection2.active.line,
 					0,
-					"Selection should extend to line 0"
+					"Selection should extend to line 0",
 				);
 			} finally {
 				// Restore original activeTextEditor
-				Object.defineProperty(vscode.window, 'activeTextEditor', {
+				Object.defineProperty(vscode.window, "activeTextEditor", {
 					get: () => originalActiveTextEditor,
-					configurable: true
+					configurable: true,
 				});
 			}
 		});
@@ -601,7 +577,7 @@ after function`,
 		test("should select across collapsed regions when using selectDown", async () => {
 			// This test verifies that selectDown properly extends selection across collapsed regions
 			// Similar to the moveDown test, but maintains selection anchor point
-			
+
 			// Create a document with a collapsible function
 			await createDocument(
 				`before function
@@ -624,17 +600,17 @@ after function`,
 
 			// Mock visibleRanges to simulate a collapsed function (lines 2-13)
 			const mockVisibleRanges = [
-				new vscode.Range(0, 0, 2, Number.MAX_SAFE_INTEGER),  // Lines 0-2 visible
-				new vscode.Range(14, 0, 15, Number.MAX_SAFE_INTEGER)  // Lines 14-15 visible
+				new vscode.Range(0, 0, 2, Number.MAX_SAFE_INTEGER), // Lines 0-2 visible
+				new vscode.Range(14, 0, 15, Number.MAX_SAFE_INTEGER), // Lines 14-15 visible
 			];
-			
+
 			// Set up mock using the same proxy approach
 			const originalActiveTextEditor = vscode.window.activeTextEditor;
-			Object.defineProperty(vscode.window, 'activeTextEditor', {
+			Object.defineProperty(vscode.window, "activeTextEditor", {
 				get: () => {
 					return new Proxy(editor, {
 						get(target, prop) {
-							if (prop === 'visibleRanges') {
+							if (prop === "visibleRanges") {
 								return mockVisibleRanges;
 							}
 							// @ts-expect-error - TypeScript can't verify the type of dynamically accessed properties on Proxy target
@@ -644,55 +620,55 @@ after function`,
 							// @ts-expect-error - TypeScript can't verify the type when setting dynamic properties on Proxy target
 							target[prop] = value;
 							return true;
-						}
+						},
 					}) as vscode.TextEditor;
 				},
-				configurable: true
+				configurable: true,
 			});
 
 			try {
 				// Start at line 0 (before function)
 				setCursorPosition(0);
-				
+
 				// SelectDown should select from line 0 to the start of the collapsed function (line 2)
 				await vscode.commands.executeCommand("jumpman.selectDown");
-				
+
 				const selection = editor.selection;
 				assert.strictEqual(
 					selection.anchor.line,
 					0,
-					"Selection anchor should remain at line 0"
+					"Selection anchor should remain at line 0",
 				);
 				assert.strictEqual(
 					selection.active.line,
 					2,
-					"Selection should extend to start of collapsed function at line 2"
+					"Selection should extend to start of collapsed function at line 2",
 				);
 				assert.strictEqual(
 					selection.isEmpty,
 					false,
-					"Selection should not be empty"
+					"Selection should not be empty",
 				);
-				
+
 				// SelectDown again should extend selection past the collapsed region to line 15
 				await vscode.commands.executeCommand("jumpman.selectDown");
-				
+
 				const selection2 = editor.selection;
 				assert.strictEqual(
 					selection2.anchor.line,
 					0,
-					"Selection anchor should still be at line 0"
+					"Selection anchor should still be at line 0",
 				);
 				assert.strictEqual(
 					selection2.active.line,
 					15,
-					"Selection should extend past collapsed region to line 15"
+					"Selection should extend past collapsed region to line 15",
 				);
 			} finally {
 				// Restore original activeTextEditor
-				Object.defineProperty(vscode.window, 'activeTextEditor', {
+				Object.defineProperty(vscode.window, "activeTextEditor", {
 					get: () => originalActiveTextEditor,
-					configurable: true
+					configurable: true,
 				});
 			}
 		});
