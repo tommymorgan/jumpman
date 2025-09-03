@@ -4,16 +4,44 @@ import { _internal } from "../../extension";
 
 const { findNextVisibleBlock, findPreviousVisibleBlock } = _internal;
 
+// Helper to create mock line data
+function createMockLine(isEmpty: boolean, text: string) {
+	return {
+		isEmptyOrWhitespace: isEmpty,
+		text: text,
+	};
+}
+
+// Helper to create line based on simple empty indices
+function createLineAtSimple(emptyIndices: number[]) {
+	return (n: number) => {
+		const isEmpty = emptyIndices.includes(n);
+		return createMockLine(isEmpty, isEmpty ? "" : `line ${n}`);
+	};
+}
+
+// Helper to create line with special cases
+function createLineAtWithSpecial(
+	emptyIndices: number[],
+	specialCases: Map<number, string>,
+) {
+	return (n: number) => {
+		const isEmpty = emptyIndices.includes(n);
+		const specialText = specialCases.get(n);
+		if (specialText !== undefined) {
+			return createMockLine(false, specialText);
+		}
+		return createMockLine(isEmpty, isEmpty ? "" : `line ${n}`);
+	};
+}
+
 suite("Internal Functions", () => {
 	suite("findNextVisibleBlock", () => {
 		test("should find next block when starting in a block", () => {
 			// Mock document with blocks separated by empty lines
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 2 || n === 6,
-					text: n === 2 || n === 6 ? "" : `line ${n}`,
-				}),
+				lineAt: createLineAtSimple([2, 6]),
 			} as vscode.TextDocument;
 
 			// No editor (no collapsed regions)
@@ -22,12 +50,10 @@ suite("Internal Functions", () => {
 		});
 
 		test("should skip collapsed regions and closing braces", () => {
+			const specialCases = new Map([[7, "}"]]);
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 2 || n === 8,
-					text: n === 2 || n === 8 ? "" : n === 7 ? "}" : `line ${n}`,
-				}),
+				lineAt: createLineAtWithSpecial([2, 8], specialCases),
 			} as vscode.TextDocument;
 
 			// Mock editor with collapsed region (lines 3-6 not visible)
@@ -48,21 +74,16 @@ suite("Internal Functions", () => {
 		});
 
 		test("should skip standalone closing braces", () => {
+			const lines = [
+				"function foo() {", // 0
+				"", // 1
+				"}", // 2
+				"", // 3
+				"next();", // 4
+			];
 			const mockDoc = {
 				lineCount: 5,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 1 || n === 3,
-					text:
-						n === 0
-							? "function foo() {"
-							: n === 1
-								? ""
-								: n === 2
-									? "}"
-									: n === 3
-										? ""
-										: "next();",
-				}),
+				lineAt: (n: number) => createMockLine(lines[n] === "", lines[n]),
 			} as vscode.TextDocument;
 
 			const result = findNextVisibleBlock(mockDoc, 0, 4, undefined);
@@ -75,41 +96,36 @@ suite("Internal Functions", () => {
 
 		test("should handle the exact runTest.ts scenario", () => {
 			// This is the exact structure from runTest.ts that's failing
+			const lines = [
+				`import * as path from "node:path";`, // 0
+				`import { runTests } from "@vscode/test-electron";`, // 1
+				``, // 2
+				`async function main() {`, // 3
+				`	try {`, // 4
+				`		// The folder containing the Extension Manifest package.json`, // 5
+				`		const extensionDevelopmentPath = path.resolve(__dirname, "../../../");`, // 6
+				``, // 7
+				`		// The path to the test runner script (compiled)`, // 8
+				`		const extensionTestsPath = path.resolve(__dirname, "./suite/index");`, // 9
+				``, // 10
+				`		// Download VS Code, unzip it and run the integration test`, // 11
+				`		await runTests({`, // 12
+				`			extensionDevelopmentPath,`, // 13
+				`			extensionTestsPath,`, // 14
+				`			launchArgs: [], // Don't disable extensions, we need our extension to load`, // 15
+				`		});`, // 16
+				`	} catch (err) {`, // 17
+				`		console.error("Failed to run tests:", err);`, // 18
+				`		process.exit(1);`, // 19
+				`	}`, // 20
+				`}`, // 21
+				``, // 22
+				`main();`, // 23
+				``, // 24
+			];
 			const mockDoc = {
 				lineCount: 25,
-				lineAt: (n: number) => {
-					const lines = [
-						`import * as path from "node:path";`, // 0
-						`import { runTests } from "@vscode/test-electron";`, // 1
-						``, // 2
-						`async function main() {`, // 3
-						`	try {`, // 4
-						`		// The folder containing the Extension Manifest package.json`, // 5
-						`		const extensionDevelopmentPath = path.resolve(__dirname, "../../../");`, // 6
-						``, // 7
-						`		// The path to the test runner script (compiled)`, // 8
-						`		const extensionTestsPath = path.resolve(__dirname, "./suite/index");`, // 9
-						``, // 10
-						`		// Download VS Code, unzip it and run the integration test`, // 11
-						`		await runTests({`, // 12
-						`			extensionDevelopmentPath,`, // 13
-						`			extensionTestsPath,`, // 14
-						`			launchArgs: [], // Don't disable extensions, we need our extension to load`, // 15
-						`		});`, // 16
-						`	} catch (err) {`, // 17
-						`		console.error("Failed to run tests:", err);`, // 18
-						`		process.exit(1);`, // 19
-						`	}`, // 20
-						`}`, // 21
-						``, // 22
-						`main();`, // 23
-						``, // 24
-					];
-					return {
-						isEmptyOrWhitespace: lines[n] === "",
-						text: lines[n],
-					};
-				},
+				lineAt: (n: number) => createMockLine(lines[n] === "", lines[n]),
 			} as vscode.TextDocument;
 
 			// Mock editor with lines 4-20 collapsed (function body hidden)
@@ -134,10 +150,7 @@ suite("Internal Functions", () => {
 		test("should find previous block when starting in empty space", () => {
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 5 || n === 2,
-					text: n === 5 || n === 2 ? "" : `line ${n}`,
-				}),
+				lineAt: createLineAtSimple([5, 2]),
 			} as vscode.TextDocument;
 
 			const result = findPreviousVisibleBlock(mockDoc, 5, 0, undefined);
@@ -151,10 +164,7 @@ suite("Internal Functions", () => {
 		test("should find previous block when starting in middle of current block", () => {
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 2 || n === 6,
-					text: n === 2 || n === 6 ? "" : `line ${n}`,
-				}),
+				lineAt: createLineAtSimple([2, 6]),
 			} as vscode.TextDocument;
 
 			const result = findPreviousVisibleBlock(mockDoc, 4, 0, undefined);
@@ -162,41 +172,36 @@ suite("Internal Functions", () => {
 		});
 
 		test("should handle the exact runTest.ts moveUp scenario", () => {
+			const lines = [
+				`import * as path from "node:path";`, // 0
+				`import { runTests } from "@vscode/test-electron";`, // 1
+				``, // 2
+				`async function main() {`, // 3
+				`	try {`, // 4
+				`		// The folder containing the Extension Manifest package.json`, // 5
+				`		const extensionDevelopmentPath = path.resolve(__dirname, "../../../");`, // 6
+				``, // 7
+				`		// The path to the test runner script (compiled)`, // 8
+				`		const extensionTestsPath = path.resolve(__dirname, "./suite/index");`, // 9
+				``, // 10
+				`		// Download VS Code, unzip it and run the integration test`, // 11
+				`		await runTests({`, // 12
+				`			extensionDevelopmentPath,`, // 13
+				`			extensionTestsPath,`, // 14
+				`			launchArgs: [], // Don't disable extensions, we need our extension to load`, // 15
+				`		});`, // 16
+				`	} catch (err) {`, // 17
+				`		console.error("Failed to run tests:", err);`, // 18
+				`		process.exit(1);`, // 19
+				`	}`, // 20
+				`}`, // 21
+				``, // 22
+				`main();`, // 23
+				``, // 24
+			];
 			const mockDoc = {
 				lineCount: 25,
-				lineAt: (n: number) => {
-					const lines = [
-						`import * as path from "node:path";`, // 0
-						`import { runTests } from "@vscode/test-electron";`, // 1
-						``, // 2
-						`async function main() {`, // 3
-						`	try {`, // 4
-						`		// The folder containing the Extension Manifest package.json`, // 5
-						`		const extensionDevelopmentPath = path.resolve(__dirname, "../../../");`, // 6
-						``, // 7
-						`		// The path to the test runner script (compiled)`, // 8
-						`		const extensionTestsPath = path.resolve(__dirname, "./suite/index");`, // 9
-						``, // 10
-						`		// Download VS Code, unzip it and run the integration test`, // 11
-						`		await runTests({`, // 12
-						`			extensionDevelopmentPath,`, // 13
-						`			extensionTestsPath,`, // 14
-						`			launchArgs: [], // Don't disable extensions, we need our extension to load`, // 15
-						`		});`, // 16
-						`	} catch (err) {`, // 17
-						`		console.error("Failed to run tests:", err);`, // 18
-						`		process.exit(1);`, // 19
-						`	}`, // 20
-						`}`, // 21
-						``, // 22
-						`main();`, // 23
-						``, // 24
-					];
-					return {
-						isEmptyOrWhitespace: lines[n] === "",
-						text: lines[n],
-					};
-				},
+				lineAt: (n: number) => createMockLine(lines[n] === "", lines[n]),
 			} as vscode.TextDocument;
 
 			// Mock editor with lines 4-20 collapsed

@@ -19,8 +19,7 @@ This is a VSCode extension called "Jumpman" that enables quick navigation throug
 - `pnpm run test:unit` - Run unit tests with Vitest
 
 ### Code Quality
-- `pnpm run lint` - Run Biome linter on src/
-- `pnpm run lint:check` - Check linting without fixing
+- `pnpm run lint` - Run Biome linter on src/ (checks and applies fixes)
 - `pnpm run format` - Format code with Biome
 
 

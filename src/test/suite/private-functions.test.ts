@@ -2,6 +2,22 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { _internal } from "../../extension";
 
+// Helper to create mock line data
+function createMockLine(isEmpty: boolean, text: string) {
+	return {
+		isEmptyOrWhitespace: isEmpty,
+		text: text,
+	};
+}
+
+// Helper to create line based on simple empty indices
+function createLineAtSimple(emptyIndices: number[]) {
+	return (n: number) => {
+		const isEmpty = emptyIndices.includes(n);
+		return createMockLine(isEmpty, isEmpty ? "" : `line ${n}`);
+	};
+}
+
 const {
 	isLineVisible,
 	skipCollapsedRegion,
@@ -207,10 +223,7 @@ suite("Private Functions", () => {
 		test("should skip to end of block when in middle", () => {
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 3 || n === 7,
-					text: n === 3 || n === 7 ? "" : `line ${n}`,
-				}),
+				lineAt: createLineAtSimple([3, 7]),
 			} as vscode.TextDocument;
 
 			// Starting at line 4 (in block 4-6), should skip to line 6
@@ -255,10 +268,7 @@ suite("Private Functions", () => {
 		test("should handle single-line block", () => {
 			const mockDoc = {
 				lineCount: 5,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 1 || n === 3,
-					text: n === 1 || n === 3 ? "" : `line ${n}`,
-				}),
+				lineAt: createLineAtSimple([1, 3]),
 			} as vscode.TextDocument;
 
 			// Line 2 is a single-line block surrounded by empty lines
@@ -271,10 +281,10 @@ suite("Private Functions", () => {
 		test("should skip multiple empty lines", () => {
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n >= 5 && n <= 7,
-					text: n >= 5 && n <= 7 ? "" : `line ${n}`,
-				}),
+				lineAt: (n: number) => {
+					const isEmpty = n >= 5 && n <= 7;
+					return createMockLine(isEmpty, isEmpty ? "" : `line ${n}`);
+				},
 			} as vscode.TextDocument;
 
 			// Starting at line 7 (empty), should skip to line 4 (first non-empty)
@@ -338,13 +348,10 @@ suite("Private Functions", () => {
 
 	suite("findBlockStart", () => {
 		test("should find start of single-line block", () => {
+			const lines = ["", "line 1", "", "line 3", ""];
 			const mockDoc = {
 				lineCount: 5,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 0 || n === 2 || n === 4,
-					text:
-						n === 0 || n === 2 || n === 4 ? "" : n === 1 ? "line 1" : "line 3",
-				}),
+				lineAt: (n: number) => createMockLine(lines[n] === "", lines[n]),
 			} as vscode.TextDocument;
 
 			// Line 1 is a single-line block
@@ -355,10 +362,7 @@ suite("Private Functions", () => {
 		test("should find start of multi-line block", () => {
 			const mockDoc = {
 				lineCount: 10,
-				lineAt: (n: number) => ({
-					isEmptyOrWhitespace: n === 2 || n === 7,
-					text: n === 2 || n === 7 ? "" : `line ${n}`,
-				}),
+				lineAt: createLineAtSimple([2, 7]),
 			} as vscode.TextDocument;
 
 			// Starting at line 6 (in block 3-6), should find start at line 3
