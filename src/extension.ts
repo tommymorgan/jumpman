@@ -15,63 +15,6 @@ function isLineVisible(
 	return visible;
 }
 
-// Check if we should continue skipping in a block
-function shouldContinueInBlock(
-	document: vscode.TextDocument,
-	index: number,
-	nextIndex: number,
-	boundary: number,
-	editor?: vscode.TextEditor,
-): boolean {
-	if (index === boundary) return false;
-	if (document.lineAt(index).isEmptyOrWhitespace) return false;
-	if (nextIndex === boundary) return false;
-	if (!isLineVisible(nextIndex, editor)) return false;
-	return true;
-}
-
-// Skip to the end of the current text block
-function skipToEndOfBlock(
-	document: vscode.TextDocument,
-	index: number,
-	step: number,
-	boundary: number,
-	editor?: vscode.TextEditor,
-): number {
-	while (
-		shouldContinueInBlock(document, index, index + step, boundary, editor)
-	) {
-		index += step;
-	}
-	// Handle boundary case
-	if (
-		index !== boundary &&
-		!document.lineAt(index).isEmptyOrWhitespace &&
-		index + step === boundary
-	) {
-		return boundary;
-	}
-	return index;
-}
-
-// Skip over empty lines
-function skipEmptyLines(
-	document: vscode.TextDocument,
-	index: number,
-	step: number,
-	boundary: number,
-	editor?: vscode.TextEditor,
-): number {
-	while (
-		index !== boundary &&
-		document.lineAt(index).isEmptyOrWhitespace &&
-		isLineVisible(index, editor)
-	) {
-		index += step;
-	}
-	return index;
-}
-
 // Skip over collapsed (invisible) regions
 function skipCollapsedRegion(
 	index: number,
@@ -85,136 +28,118 @@ function skipCollapsedRegion(
 	return index;
 }
 
-// Check if at edge of collapsed region
-function isAtCollapsedEdge(index: number, editor?: vscode.TextEditor): boolean {
-	if (index === 0) return false;
-	return !isLineVisible(index - 1, editor);
-}
-
-// Find the first visible line above a collapsed region
-function findVisibleAboveCollapsed(
-	index: number,
+// Find the next visible block when moving down
+function findNextVisibleBlock(
+	document: vscode.TextDocument,
+	startIndex: number,
+	boundary: number,
 	editor?: vscode.TextEditor,
 ): number {
-	let current = index - 1;
-	while (current > 0 && !isLineVisible(current, editor)) {
-		current--;
-	}
-	return current;
-}
-
-// Find the start of a collapsed block when moving up
-function findCollapsedBlockStart(
-	document: vscode.TextDocument,
-	index: number,
-	editor?: vscode.TextEditor,
-): number | null {
-	// Special check: if editor is not provided, we can't check visibility
-	if (!editor) {
-		return null;
-	}
-
-	if (!isAtCollapsedEdge(index, editor)) {
-		return null;
-	}
-
-	const collapsedStart = findVisibleAboveCollapsed(index, editor);
-
-	// Check if it's a valid block start
-	if (
-		collapsedStart >= 0 &&
-		isLineVisible(collapsedStart, editor) &&
-		!document.lineAt(collapsedStart).isEmptyOrWhitespace
-	) {
-		return collapsedStart;
-	}
-
-	return null;
-}
-
-// Find the start of the current block when moving up
-function findBlockStart(
-	document: vscode.TextDocument,
-	index: number,
-	editor?: vscode.TextEditor,
-): number {
-	while (index > 0 && !document.lineAt(index - 1).isEmptyOrWhitespace) {
-		if (!isLineVisible(index - 1, editor)) {
-			break; // Stop at collapsed region boundary
+	let index = startIndex;
+	
+	// First, skip to the end of the current block if we're in one
+	if (!document.lineAt(index).isEmptyOrWhitespace) {
+		while (index < boundary) {
+			const nextLine = index + 1;
+			if (nextLine > boundary) break;
+			if (!isLineVisible(nextLine, editor)) break;
+			if (document.lineAt(nextLine).isEmptyOrWhitespace) break;
+			index = nextLine;
 		}
+	}
+	
+	// Now find the next block
+	while (index < boundary) {
+		index++;
+		
+		// Skip collapsed regions
+		if (!isLineVisible(index, editor)) {
+			index = skipCollapsedRegion(index, 1, boundary, editor);
+			if (index > boundary) return boundary;
+		}
+		
+		// We found a visible line - check if it's non-empty and not a closing brace
+		if (isLineVisible(index, editor) && !document.lineAt(index).isEmptyOrWhitespace) {
+			const lineText = document.lineAt(index).text.trim();
+			// Skip standalone closing braces and continue looking
+			if (lineText === '}' || lineText === ']' || lineText === ')' || 
+				lineText === '};' || lineText === '];' || lineText === ');') {
+				continue;
+			}
+			// Found a valid block start
+			return index;
+		}
+	}
+	
+	return boundary;
+}
+
+// Find the previous visible block when moving up
+function findPreviousVisibleBlock(
+	document: vscode.TextDocument,
+	startIndex: number,
+	boundary: number,
+	editor?: vscode.TextEditor,
+): number {
+	let index = startIndex;
+	
+	// First, skip to the start of the current block if we're in one
+	if (!document.lineAt(index).isEmptyOrWhitespace) {
+		while (index > boundary) {
+			const prevLine = index - 1;
+			if (!isLineVisible(prevLine, editor)) break;
+			if (document.lineAt(prevLine).isEmptyOrWhitespace) break;
+			index = prevLine;
+		}
+	}
+	
+	// Now move backwards to find the previous block
+	while (index > boundary) {
 		index--;
+		
+		// Skip collapsed regions
+		if (!isLineVisible(index, editor)) {
+			index = skipCollapsedRegion(index, -1, boundary, editor);
+			if (index < boundary) return boundary;
+		}
+		
+		// Skip empty lines
+		while (index >= boundary && document.lineAt(index).isEmptyOrWhitespace) {
+			index--;
+			if (index < boundary) return boundary;
+		}
+		
+		if (index < boundary) return boundary;
+		
+		// Check if this line is visible and not just a closing brace
+		if (isLineVisible(index, editor)) {
+			const lineText = document.lineAt(index).text.trim();
+			// Skip standalone closing braces when moving up
+			if (lineText === '}' || lineText === ']' || lineText === ')' || 
+				lineText === '};' || lineText === '];' || lineText === ');') {
+				continue;
+			}
+			
+			// Found a valid block, now find its start
+			while (index > boundary) {
+				const prevLine = index - 1;
+				if (!isLineVisible(prevLine, editor)) break;
+				if (document.lineAt(prevLine).isEmptyOrWhitespace) break;
+				const prevText = document.lineAt(prevLine).text.trim();
+				// Don't go past another closing brace
+				if (prevText === '}' || prevText === ']' || prevText === ')' || 
+					prevText === '};' || prevText === '];' || prevText === ');') {
+					break;
+				}
+				index = prevLine;
+			}
+			return index;
+		}
 	}
-	return index;
+	
+	return boundary;
 }
 
-// Handle moving up to find block start
-function handleMoveUp(
-	document: vscode.TextDocument,
-	index: number,
-	boundary: number,
-	editor?: vscode.TextEditor,
-): number {
-	if (index === boundary || document.lineAt(index).isEmptyOrWhitespace) {
-		return index;
-	}
-
-	// Check if we're at the edge of a collapsed region
-	const collapsedStart = findCollapsedBlockStart(document, index, editor);
-	if (collapsedStart !== null) {
-		return collapsedStart;
-	}
-
-	// Find the start of the current block
-	if (isLineVisible(index, editor)) {
-		return findBlockStart(document, index, editor);
-	}
-
-	return index;
-}
-
-// Process navigation to the next position
-function processNavigation(
-	document: vscode.TextDocument,
-	index: number,
-	step: number,
-	boundary: number,
-	editor?: vscode.TextEditor,
-): number {
-	// Skip to the end of the current block
-	index = skipToEndOfBlock(document, index, step, boundary, editor);
-
-	// Skip empty lines
-	index = skipEmptyLines(document, index, step, boundary, editor);
-
-	// Skip collapsed regions if needed
-	if (!isLineVisible(index, editor)) {
-		index = skipCollapsedRegion(index, step, boundary, editor);
-		index = skipEmptyLines(document, index, step, boundary, editor);
-	}
-
-	return index;
-}
-
-// Handle moving down when stuck at collapsed region edge
-function handleMoveDownAtCollapsedEdge(
-	document: vscode.TextDocument,
-	index: number,
-	boundary: number,
-	editor?: vscode.TextEditor,
-): number {
-	if (!editor || index === boundary) {
-		return index;
-	}
-
-	const nextLine = index + 1;
-	if (nextLine <= boundary && !isLineVisible(nextLine, editor)) {
-		// Skip the collapsed region
-		const afterCollapsed = skipCollapsedRegion(nextLine, 1, boundary, editor);
-		return skipEmptyLines(document, afterCollapsed, 1, boundary, editor);
-	}
-
-	return index;
-}
 
 function nextPosition(
 	document: vscode.TextDocument,
@@ -228,26 +153,12 @@ function nextPosition(
 		return position.line;
 	}
 
-	const step = up ? -1 : 1;
-	let index = processNavigation(
-		document,
-		position.line,
-		step,
-		boundary,
-		editor,
-	);
-
-	// Handle special cases based on direction
+	// Use the new dedicated functions for finding visible blocks
 	if (up) {
-		return handleMoveUp(document, index, boundary, editor);
+		return findPreviousVisibleBlock(document, position.line, boundary, editor);
+	} else {
+		return findNextVisibleBlock(document, position.line, boundary, editor);
 	}
-
-	// Handle being stuck at the edge of a collapsed region when moving down
-	if (index === position.line) {
-		index = handleMoveDownAtCollapsedEdge(document, index, boundary, editor);
-	}
-
-	return index;
 }
 
 function anchorPosition(selection: vscode.Selection) {
@@ -265,6 +176,12 @@ function markSelection(
 	editor.selection = new vscode.Selection(anchor || active, active);
 	editor.revealRange(new vscode.Range(active, active));
 }
+
+// Export for testing
+export const _internal = {
+	findNextVisibleBlock,
+	findPreviousVisibleBlock,
+};
 
 export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(

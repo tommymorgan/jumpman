@@ -12,6 +12,7 @@ export async function run(): Promise<void> {
 	const testsRoot = path.resolve(__dirname, "..");
 
 	mocha.addFile(path.resolve(testsRoot, "suite/extension.test.js"));
+	mocha.addFile(path.resolve(testsRoot, "suite/internal-functions.test.js"));
 
 	return new Promise<void>((resolve, reject) => {
 		// Run the mocha test
