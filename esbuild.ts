@@ -10,7 +10,7 @@ const esbuildOptions: esbuild.BuildOptions = {
 	external: ["vscode"],
 	format: "cjs",
 	platform: "node",
-	target: "node16",
+	target: "node20",
 	sourcemap: production ? false : true,
 	minify: production,
 	logLevel: "info",

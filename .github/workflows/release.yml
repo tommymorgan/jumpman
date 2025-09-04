@@ -1,0 +1,272 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should-release: ${{ steps.check.outputs.should-release }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for conventional commits
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+          
+      - name: Get current version
+        id: version
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+          
+      - name: Get previous version from latest release
+        id: previous
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "previous_version=${LATEST_TAG#v}" >> $GITHUB_OUTPUT
+          
+      - name: Analyze commits for version bump
+        id: commits
+        run: |
+          # Get commits since last tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%s" --no-merges)
+          else
+            COMMITS=$(git log ${LATEST_TAG}..HEAD --pretty=format:"%s" --no-merges)
+          fi
+          
+          # Check for conventional commit types
+          MAJOR=false
+          MINOR=false
+          PATCH=false
+          
+          while IFS= read -r commit; do
+            # Check for breaking changes (major)
+            if echo "$commit" | grep -E "^[a-z]+(\(.+\))?!:" > /dev/null || \
+               echo "$commit" | grep -i "BREAKING CHANGE" > /dev/null; then
+              MAJOR=true
+            # Check for features (minor)
+            elif echo "$commit" | grep -E "^feat(\(.+\))?:" > /dev/null; then
+              MINOR=true
+            # Check for fixes (patch)
+            elif echo "$commit" | grep -E "^fix(\(.+\))?:" > /dev/null; then
+              PATCH=true
+            fi
+          done <<< "$COMMITS"
+          
+          if [ "$MAJOR" = true ]; then
+            echo "bump_type=major" >> $GITHUB_OUTPUT
+          elif [ "$MINOR" = true ]; then
+            echo "bump_type=minor" >> $GITHUB_OUTPUT
+          elif [ "$PATCH" = true ]; then
+            echo "bump_type=patch" >> $GITHUB_OUTPUT
+          else
+            echo "bump_type=none" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Calculate expected version
+        id: expected
+        run: |
+          CURRENT="${{ steps.version.outputs.version }}"
+          PREVIOUS="${{ steps.previous.outputs.previous_version }}"
+          BUMP_TYPE="${{ steps.commits.outputs.bump_type }}"
+          
+          # Parse semantic version parts
+          IFS='.' read -ra PREV_PARTS <<< "$PREVIOUS"
+          PREV_MAJOR="${PREV_PARTS[0]}"
+          PREV_MINOR="${PREV_PARTS[1]}"
+          PREV_PATCH="${PREV_PARTS[2]}"
+          
+          # Calculate expected version based on bump type
+          if [ "$BUMP_TYPE" = "major" ]; then
+            EXPECTED="$((PREV_MAJOR + 1)).0.0"
+          elif [ "$BUMP_TYPE" = "minor" ]; then
+            EXPECTED="${PREV_MAJOR}.$((PREV_MINOR + 1)).0"
+          elif [ "$BUMP_TYPE" = "patch" ]; then
+            EXPECTED="${PREV_MAJOR}.${PREV_MINOR}.$((PREV_PATCH + 1))"
+          else
+            EXPECTED="$PREVIOUS"
+          fi
+          
+          echo "expected_version=$EXPECTED" >> $GITHUB_OUTPUT
+          
+      - name: Validate version bump
+        id: check
+        run: |
+          CURRENT="${{ steps.version.outputs.version }}"
+          EXPECTED="${{ steps.expected.outputs.expected_version }}"
+          PREVIOUS="${{ steps.previous.outputs.previous_version }}"
+          BUMP_TYPE="${{ steps.commits.outputs.bump_type }}"
+          
+          echo "Previous version: $PREVIOUS"
+          echo "Current version: $CURRENT"
+          echo "Expected version: $EXPECTED"
+          echo "Bump type detected: $BUMP_TYPE"
+          
+          if [ "$BUMP_TYPE" = "none" ]; then
+            echo "No version bump required (no feat/fix commits)"
+            echo "should-release=false" >> $GITHUB_OUTPUT
+          elif [ "$CURRENT" = "$PREVIOUS" ]; then
+            echo "❌ Version not bumped! Expected $EXPECTED but got $CURRENT"
+            echo "Please update version in package.json according to conventional commits:"
+            echo "  - fix: patch version bump (x.x.X)"
+            echo "  - feat: minor version bump (x.X.0)"
+            echo "  - BREAKING CHANGE or !: major version bump (X.0.0)"
+            exit 1
+          elif [ "$CURRENT" != "$EXPECTED" ]; then
+            echo "❌ Version mismatch! Current version $CURRENT doesn't match expected $EXPECTED"
+            echo "Based on conventional commits, version should be:"
+            echo "  Expected: $EXPECTED"
+            echo "  Current:  $CURRENT"
+            exit 1
+          else
+            echo "✅ Version correctly bumped to $CURRENT"
+            echo "should-release=true" >> $GITHUB_OUTPUT
+          fi
+
+  test-and-build:
+    needs: validate-version
+    if: needs.validate-version.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+          
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        
+      - name: Run verify (lint, typecheck, test)
+        run: |
+          # Set up virtual display for VS Code tests
+          export DISPLAY=':99.0'
+          /usr/bin/Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          pnpm run verify
+        
+      - name: Build VSIX
+        run: pnpm run build:vsix
+        
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-package
+          path: "*.vsix"
+
+  create-release:
+    needs: [validate-version, test-and-build]
+    if: needs.validate-version.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix-package
+          
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          # Generate release notes from commits
+          {
+            echo "NOTES<<EOF"
+            echo "## What's Changed"
+            echo ""
+            
+            # Get commits since last tag
+            if [ -z "$LATEST_TAG" ]; then
+              COMMITS=$(git log --pretty=format:"%s|%h" --no-merges)
+            else
+              COMMITS=$(git log ${LATEST_TAG}..HEAD --pretty=format:"%s|%h" --no-merges)
+            fi
+            
+            # Categorize commits
+            BREAKING=""
+            FEATURES=""
+            FIXES=""
+            OTHER=""
+            
+            while IFS='|' read -r message hash; do
+              # Skip if empty
+              [ -z "$message" ] && continue
+              
+              # Categorize by conventional commit type
+              if echo "$message" | grep -E "^[a-z]+(\(.+\))?!:" > /dev/null || \
+                 echo "$message" | grep -i "BREAKING CHANGE" > /dev/null; then
+                BREAKING="${BREAKING}- ${message} (${hash})\n"
+              elif echo "$message" | grep -E "^feat(\(.+\))?:" > /dev/null; then
+                FEATURES="${FEATURES}- ${message} (${hash})\n"
+              elif echo "$message" | grep -E "^fix(\(.+\))?:" > /dev/null; then
+                FIXES="${FIXES}- ${message} (${hash})\n"
+              else
+                OTHER="${OTHER}- ${message} (${hash})\n"
+              fi
+            done <<< "$COMMITS"
+            
+            # Output categorized commits
+            if [ -n "$BREAKING" ]; then
+              echo "### 🚨 Breaking Changes"
+              echo -e "$BREAKING"
+            fi
+            
+            if [ -n "$FEATURES" ]; then
+              echo "### 🚀 Features"
+              echo -e "$FEATURES"
+            fi
+            
+            if [ -n "$FIXES" ]; then
+              echo "### 🐛 Bug Fixes"
+              echo -e "$FIXES"
+            fi
+            
+            if [ -n "$OTHER" ]; then
+              echo "### 📝 Other Changes"
+              echo -e "$OTHER"
+            fi
+            
+            echo ""
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${VERSION}"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+          
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.validate-version.outputs.version }}
+          name: Release v${{ needs.validate-version.outputs.version }}
+          body: ${{ steps.notes.outputs.NOTES }}
+          files: "*.vsix"
+          draft: false
+          prerelease: false
+          generate_release_notes: false

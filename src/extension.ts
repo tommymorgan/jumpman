@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 
-// Check if a line is visible (not in a collapsed region)
 function isLineVisible(
 	lineNumber: number,
 	editor?: vscode.TextEditor,
@@ -15,7 +14,6 @@ function isLineVisible(
 	return visible;
 }
 
-// Skip over collapsed (invisible) regions
 function skipCollapsedRegion(
 	index: number,
 	step: number,
@@ -28,42 +26,42 @@ function skipCollapsedRegion(
 	return index;
 }
 
-// Check if a line contains only a closing brace
+// Set of standalone closing brace patterns for O(1) lookup
+const CLOSING_BRACE_PATTERNS = new Set([
+	"}",
+	"]",
+	")",
+	"};",
+	"];",
+	");",
+	"});",
+	"})",
+	"]);",
+	"])",
+]);
+
 function isStandaloneClosingBrace(lineText: string): boolean {
 	const trimmed = lineText.trim();
-	return (
-		trimmed === "}" ||
-		trimmed === "]" ||
-		trimmed === ")" ||
-		trimmed === "};" ||
-		trimmed === "];" ||
-		trimmed === ");" ||
-		trimmed === "});" ||
-		trimmed === "})" ||
-		trimmed === "]);" ||
-		trimmed === "])"
-	);
+	return CLOSING_BRACE_PATTERNS.has(trimmed);
 }
 
-// Check if we should continue to next line in block
 function shouldContinueInBlock(
 	document: vscode.TextDocument,
 	nextLine: number,
 	boundary: number,
-	editor?: vscode.TextEditor,
 ): boolean {
 	if (nextLine > boundary) return false;
-	if (!isLineVisible(nextLine, editor)) return false;
+	// Don't check visibility here - we need to find the true end of the block
+	// even if it extends beyond the visible area
 	if (document.lineAt(nextLine).isEmptyOrWhitespace) return false;
 	return true;
 }
 
-// Skip to the end of the current block
 function skipToEndOfCurrentBlock(
 	document: vscode.TextDocument,
 	startIndex: number,
 	boundary: number,
-	editor?: vscode.TextEditor,
+	_editor?: vscode.TextEditor,
 ): number {
 	let index = startIndex;
 	// If we're on an empty line, don't skip anything
@@ -71,17 +69,15 @@ function skipToEndOfCurrentBlock(
 		return index;
 	}
 
-	// Skip to the end of the current block
 	while (
 		index < boundary &&
-		shouldContinueInBlock(document, index + 1, boundary, editor)
+		shouldContinueInBlock(document, index + 1, boundary)
 	) {
 		index++;
 	}
 	return index < boundary ? index : boundary;
 }
 
-// Check if line is valid (non-empty and not a closing brace)
 function isValidBlockLine(
 	document: vscode.TextDocument,
 	index: number,
@@ -96,7 +92,6 @@ function isValidBlockLine(
 	return !isStandaloneClosingBrace(document.lineAt(index).text);
 }
 
-// Move to next line handling collapsed regions
 function moveToNextLine(
 	index: number,
 	boundary: number,
@@ -109,7 +104,6 @@ function moveToNextLine(
 	return index;
 }
 
-// Find the next non-empty, non-brace line
 function findNextNonEmptyLine(
 	document: vscode.TextDocument,
 	startIndex: number,
@@ -119,64 +113,58 @@ function findNextNonEmptyLine(
 	let index = startIndex;
 	while (index < boundary) {
 		index = moveToNextLine(index, boundary, editor);
-		if (index > boundary) return boundary;
+		if (index >= boundary) return boundary;
 		if (isValidBlockLine(document, index, editor)) return index;
 	}
 	return boundary;
 }
 
-// Find the next visible block when moving down
 function findNextVisibleBlock(
 	document: vscode.TextDocument,
 	startIndex: number,
 	boundary: number,
 	editor?: vscode.TextEditor,
 ): number {
-	// First, skip to the end of the current block if we're in one
 	const blockEnd = skipToEndOfCurrentBlock(
 		document,
 		startIndex,
 		boundary,
 		editor,
 	);
-	// Now find the next non-empty, non-brace line
 	return findNextNonEmptyLine(document, blockEnd, boundary, editor);
 }
 
-// Skip empty lines when moving backward
 function skipEmptyLinesBackward(
 	document: vscode.TextDocument,
 	index: number,
 	boundary: number,
 ): number {
-	while (index >= boundary && document.lineAt(index).isEmptyOrWhitespace) {
+	while (index > boundary && document.lineAt(index).isEmptyOrWhitespace) {
 		index--;
 	}
-	return index;
+	// If we're at the boundary and it's still empty, that's where we stop
+	// If we found a non-empty line, return it
+	// If we went below boundary (shouldn't happen with fixed loop), clamp to boundary
+	return Math.max(index, boundary);
 }
 
-// Check if we can continue to previous line in block
 function canMoveToPreviousInBlock(
 	document: vscode.TextDocument,
 	prevLine: number,
-	editor?: vscode.TextEditor,
 ): boolean {
-	if (!isLineVisible(prevLine, editor)) return false;
+	// Don't check visibility here - we need to find the true start of the block
+	// even if it extends beyond the visible area
 	if (document.lineAt(prevLine).isEmptyOrWhitespace) return false;
 	return !isStandaloneClosingBrace(document.lineAt(prevLine).text);
 }
 
-// Find the start of the block containing the given index
 function findBlockStart(
 	document: vscode.TextDocument,
 	index: number,
 	boundary: number,
-	editor?: vscode.TextEditor,
+	_editor?: vscode.TextEditor,
 ): number {
-	while (
-		index > boundary &&
-		canMoveToPreviousInBlock(document, index - 1, editor)
-	) {
+	while (index > boundary && canMoveToPreviousInBlock(document, index - 1)) {
 		index--;
 	}
 	return index;
@@ -228,7 +216,6 @@ function findPreviousNonEmptyLine(
 	return boundary;
 }
 
-// Find the previous visible block when moving up
 function findPreviousVisibleBlock(
 	document: vscode.TextDocument,
 	startIndex: number,
@@ -256,12 +243,40 @@ function findPreviousVisibleBlock(
 	return boundary;
 }
 
+function validateAndClampPosition(
+	document: vscode.TextDocument,
+	position: vscode.Position,
+): number | null {
+	// Input validation - be liberal in what we accept but validate
+	if (!document || !position) {
+		throw new Error("Document and position are required");
+	}
+
+	// Validate position is within document bounds
+	if (position.line < 0 || position.line >= document.lineCount) {
+		// Clamp to valid range instead of throwing
+		const clampedLine = Math.max(
+			0,
+			Math.min(position.line, document.lineCount - 1),
+		);
+		return clampedLine;
+	}
+
+	return null; // Position is valid, no clamping needed
+}
+
 function nextPosition(
 	document: vscode.TextDocument,
 	position: vscode.Position,
-	up: boolean = false,
+	up = false,
 	editor?: vscode.TextEditor,
 ): number {
+	// Validate and potentially clamp the position
+	const clampedLine = validateAndClampPosition(document, position);
+	if (clampedLine !== null) {
+		return clampedLine;
+	}
+
 	const boundary = up ? 0 : document.lineCount - 1;
 
 	if (position.line === boundary) {
@@ -271,9 +286,8 @@ function nextPosition(
 	// Use the new dedicated functions for finding visible blocks
 	if (up) {
 		return findPreviousVisibleBlock(document, position.line, boundary, editor);
-	} else {
-		return findNextVisibleBlock(document, position.line, boundary, editor);
 	}
+	return findNextVisibleBlock(document, position.line, boundary, editor);
 }
 
 function anchorPosition(selection: vscode.Selection) {
@@ -310,57 +324,45 @@ export const _internal = {
 	findPreviousNonEmptyLine,
 	findNextVisibleBlock,
 	findPreviousVisibleBlock,
+	validateAndClampPosition,
 	nextPosition,
 	anchorPosition,
 	markSelection,
 };
 
+// Execute navigation command logic
+function executeNavigationCommand(moveUp: boolean, select: boolean) {
+	const editor = vscode.window.activeTextEditor;
+	if (!editor) return;
+
+	const newPosition = nextPosition(
+		editor.document,
+		editor.selection.active,
+		moveUp,
+		editor,
+	);
+
+	const anchor = select ? anchorPosition(editor.selection) : undefined;
+	markSelection(editor, newPosition, anchor);
+}
+
 export function activate(context: vscode.ExtensionContext) {
+	// Register all four navigation commands
 	context.subscriptions.push(
-		vscode.commands.registerCommand("jumpman.moveUp", () => {
-			const editor = vscode.window.activeTextEditor;
-			if (!editor) return;
-			markSelection(
-				editor,
-				nextPosition(editor.document, editor.selection.active, true, editor),
-			);
-		}),
-	);
-
-	context.subscriptions.push(
-		vscode.commands.registerCommand("jumpman.moveDown", () => {
-			const editor = vscode.window.activeTextEditor;
-			if (!editor) return;
-			markSelection(
-				editor,
-				nextPosition(editor.document, editor.selection.active, false, editor),
-			);
-		}),
-	);
-
-	context.subscriptions.push(
-		vscode.commands.registerCommand("jumpman.selectUp", () => {
-			const editor = vscode.window.activeTextEditor;
-			if (!editor) return;
-			markSelection(
-				editor,
-				nextPosition(editor.document, editor.selection.active, true, editor),
-				anchorPosition(editor.selection),
-			);
-		}),
-	);
-
-	context.subscriptions.push(
-		vscode.commands.registerCommand("jumpman.selectDown", () => {
-			const editor = vscode.window.activeTextEditor;
-			if (!editor) return;
-			markSelection(
-				editor,
-				nextPosition(editor.document, editor.selection.active, false, editor),
-				anchorPosition(editor.selection),
-			);
-		}),
+		vscode.commands.registerCommand("jumpman.moveUp", () =>
+			executeNavigationCommand(true, false),
+		),
+		vscode.commands.registerCommand("jumpman.moveDown", () =>
+			executeNavigationCommand(false, false),
+		),
+		vscode.commands.registerCommand("jumpman.selectUp", () =>
+			executeNavigationCommand(true, true),
+		),
+		vscode.commands.registerCommand("jumpman.selectDown", () =>
+			executeNavigationCommand(false, true),
+		),
 	);
 }
 
+// Required by VSCode extension API - no cleanup needed for this extension
 export function deactivate() {}

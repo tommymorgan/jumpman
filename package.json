@@ -4,7 +4,7 @@
 	"description": "Jump vertically across space-delimited blocks. Based on Space Block Jumper by jmfirth.",
 	"license": "MIT",
 	"repository": "github:tommymorgan/jumpman",
-	"version": "1.0.0",
+	"version": "0.1.0",
 	"publisher": "tommymorgan",
 	"packageManager": "pnpm@10.15.1+sha512.34e538c329b5553014ca8e8f4535997f96180a1d0f614339357449935350d924e22f8614682191264ec33d1462ac21561aff97f6bb18065351c162c7e8f6de67",
 	"engines": {
@@ -71,7 +71,12 @@
 		"lint": "biome check --write src",
 		"format": "biome format --write src",
 		"pretest": "pnpm run compile && tsc -p tsconfig.test.json",
-		"test": "xvfb-run -a node out/src/test/runTest.js"
+		"test": "xvfb-run -a node out/src/test/runTest.js",
+		"typecheck": "tsc -p . --noEmit",
+		"verify": "pnpm run lint && pnpm run typecheck && pnpm run test",
+		"version:patch": "npm version patch --no-git-tag-version",
+		"version:minor": "npm version minor --no-git-tag-version",
+		"version:major": "npm version major --no-git-tag-version"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.2.2",
