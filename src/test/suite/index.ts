@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import Mocha from "mocha";
 
@@ -10,10 +11,18 @@ export async function run(): Promise<void> {
 	});
 
 	const testsRoot = path.resolve(__dirname, "..");
+	const suiteDir = path.resolve(testsRoot, "suite");
 
-	mocha.addFile(path.resolve(testsRoot, "suite/extension.test.js"));
-	mocha.addFile(path.resolve(testsRoot, "suite/internal-functions.test.js"));
-	mocha.addFile(path.resolve(testsRoot, "suite/private-functions.test.js"));
+	// Find all compiled test files
+	const testFiles = fs
+		.readdirSync(suiteDir)
+		.filter((file) => file.endsWith(".test.js"))
+		.map((file) => path.resolve(suiteDir, file));
+
+	// Add each test file to mocha
+	for (const testFile of testFiles) {
+		mocha.addFile(testFile);
+	}
 
 	return new Promise<void>((resolve, reject) => {
 		// Run the mocha test

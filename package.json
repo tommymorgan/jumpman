@@ -35,12 +35,39 @@
 				"command": "jumpman.selectDown",
 				"title": "Jumpman: Select Down"
 			}
+		],
+		"keybindings": [
+			{
+				"command": "jumpman.moveUp",
+				"key": "ctrl+up",
+				"mac": "alt+up",
+				"when": "editorTextFocus"
+			},
+			{
+				"command": "jumpman.moveDown",
+				"key": "ctrl+down",
+				"mac": "alt+down",
+				"when": "editorTextFocus"
+			},
+			{
+				"command": "jumpman.selectUp",
+				"key": "shift+ctrl+up",
+				"mac": "shift+alt+up",
+				"when": "editorTextFocus"
+			},
+			{
+				"command": "jumpman.selectDown",
+				"key": "shift+ctrl+down",
+				"mac": "shift+alt+down",
+				"when": "editorTextFocus"
+			}
 		]
 	},
 	"scripts": {
 		"vscode:prepublish": "pnpm run package",
 		"compile": "node esbuild.ts",
 		"package": "node esbuild.ts --production",
+		"build:vsix": "vsce package --no-dependencies",
 		"lint": "biome check --write src",
 		"format": "biome format --write src",
 		"pretest": "pnpm run compile && tsc -p tsconfig.test.json",
