@@ -29,3 +29,4 @@ This extension is based on the original [Space Block Jumper](https://github.com/
 - Fixed cursor positioning to jump to the first line of text blocks instead of empty lines
 - Modernized build tooling (esbuild, pnpm, Biome)
 - Improved test coverage
+
