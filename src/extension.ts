@@ -5,13 +5,11 @@ function isLineVisible(
 	editor?: vscode.TextEditor,
 ): boolean {
 	if (!editor?.visibleRanges?.length) {
-		// If we can't check visibility, assume visible
-		return true;
+		return false;
 	}
-	const visible = editor.visibleRanges.some(
+	return editor.visibleRanges.some(
 		(range) => lineNumber >= range.start.line && lineNumber <= range.end.line,
 	);
-	return visible;
 }
 
 function skipCollapsedRegion(
